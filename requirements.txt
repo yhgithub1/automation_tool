@@ -1,0 +1,7 @@
+PyQt5==5.15.7
+pandas==2.3.2
+openpyxl==3.1.2
+pyautogui==0.9.53
+pygetwindow==0.0.9
+pywin32==305
+pyperclip==1.8.2
