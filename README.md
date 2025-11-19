@@ -57,12 +57,7 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-1. 运行主程序:
-```bash
-python main.py
-```
-
-2. 或运行特定模块:
+运行主程序:
 ```bash
 python correction.py
 ```
