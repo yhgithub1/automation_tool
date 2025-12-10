@@ -26,6 +26,7 @@ from modules.memo_generator import generate_memo
 from utils.file_utils import find_excel_file
 from modules.pdf_extractor import PdfTableExtractor
 from modules.findfile import find_files_with_progress
+from modules.file_converter import FileConverter
 from modules.file_converter_ui import FileConverterUI
 
 
@@ -1048,14 +1049,19 @@ class MainWindow(QMainWindow):
         search_window.exec_()
 
     def run_file_converter(self):
-        """运行文件转换器功能"""
+        """运行文件转换器功能 - 使用独立的UI界面"""
         self.update_log("🚀 启动文件转换器...")
         
-        # 创建文件转换器窗口
-        self.file_converter_window = FileConverterUI()
-        self.file_converter_window.show()
+        # 创建文件转换器UI窗口
+        self.file_converter_ui = FileConverterUI()
         
-        self.update_log(" 文件转换器已启动")
+        # 设置为模态对话框
+        self.file_converter_ui.setWindowModality(Qt.ApplicationModal)
+        
+        # 显示窗口
+        self.file_converter_ui.show()
+        
+        self.update_log(" 文件转换器UI已启动")
 
     def cancel_task(self):
         if not self.current_thread or not self.current_thread.isRunning():
