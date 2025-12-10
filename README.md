@@ -1,84 +1,83 @@
-# Automation Tool
+# Automation Tool 项目提交说明
 
-这是一个自动化工具项目，包含多个模块用于不同的自动化任务。
+## 项目提交状态
 
-## 项目结构
+✅ **本地提交已成功创建**
+- 提交哈希: `c8f50fe`
+- 提交信息: "Initial commit: Add automation tool project files"
+- 已添加文件:
+  - automation tool/Automation Tool使用说明.pdf
+  - automation tool/Automation Tool使用说明.pptx
+  - release/correction.exe
+  - version_info.txt
+  - 以及其他项目文件
 
+## 远程仓库配置
+
+✅ **远程仓库已配置**
+- 仓库地址: https://github.com/yhgithub1/automation_tool.git
+- 远程名称: origin
+
+## 遇到的问题
+
+❌ **网络连接问题**
+在尝试推送代码到远程仓库时遇到连接超时错误：
+- HTTPS方式: 连接 github.com:443 超时
+- SSH方式: 公钥认证失败（SSH代理未运行）
+
+## 解决方案
+
+### 方案1: 使用HTTPS + 个人访问令牌(PAT)
+
+1. **生成GitHub个人访问令牌(PAT)**
+   - 登录 GitHub
+   - 进入 Settings → Developer settings → Personal access tokens → Tokens (classic)
+   - 点击 "Generate new token (classic)"
+   - 设置令牌名称和有效期
+   - 选择 scopes: `repo` (完全控制私有仓库)
+   - 复制生成的令牌
+
+2. **推送代码**
+```bash
+git push -u origin main
+# 当提示输入用户名和密码时:
+# 用户名: yhgithub1
+# 密码: [粘贴刚才生成的PAT令牌]
 ```
-automation_tool/
-├── .gitignore              # Git忽略文件配置
-├── README.md              # 项目说明文档
-├── correction.py          # 主程序文件
-├── correction.spec        # PyInstaller配置文件
-├── file_converter.py      # 文件转换工具
-├── main.py               # 主入口文件
-├── requirements.txt      # Python依赖包列表
-├── robot-solid-full.svg  # 项目图标
-├── Automation tool使用说明.pdf  # 使用说明文档
-├── modules/              # 功能模块目录
-│   ├── __init__.py
-│   ├── calibration_report_demo.py
-│   ├── config.py
-│   ├── excel_manager.py
-│   ├── file_converter.py
-│   ├── file_converter_always.py
-│   ├── file_converter_ui.py
-│   ├── findfile.py
-│   ├── folder_creation.py
-│   ├── memo_generator.py
-│   ├── outlook_automation.py
-│   └── pdf_extractor.py
-├── test_files/           # 测试文件目录
-│   ├── test_data.xlsx
-│   ├── test_document.docx
-│   ├── test_image.jpg
-│   └── test_image.png
-└── utils/               # 工具函数目录
-    ├── __init__.py
-    └── file_utils.py
+
+### 方案2: 配置SSH密钥
+
+1. **在GitHub上添加SSH公钥**
+   - 复制公钥内容:
+   ```bash
+   type C:\Users\zchangyu\.ssh\id_ed25519.pub
+   ```
+   - 在GitHub上 Settings → SSH and GPG keys → New SSH key
+   - 粘贴公钥内容并保存
+
+2. **修改远程仓库为SSH**
+```bash
+git remote set-url origin git@github.com:yhgithub1/automation_tool.git
+git push -u origin main
 ```
 
-## 功能模块
+### 方案3: 检查网络环境
 
-- **文件转换**: 支持多种格式的文件转换
-- **Excel管理**: Excel文件处理和管理功能
-- **PDF提取**: PDF文档内容提取
-- **Outlook自动化**: 邮件和日历自动化
-- **文件查找**: 快速查找文件工具
-- **文件夹创建**: 自动化文件夹创建
-- **备忘录生成**: 自动生成备忘录文档
-- **校准报告**: 生成校准报告模板
+如果上述方法都失败，可能是网络限制：
+- 检查防火墙设置
+- 尝试使用VPN
+- 检查公司网络策略
 
-## 安装依赖
+## 当前Git状态
 
 ```bash
-pip install -r requirements.txt
+git status  # working tree clean
+git log --oneline -1  # c8f50fe (HEAD -> main) Initial commit
+git remote -v  # origin已配置
 ```
 
-## 使用方法
+## 下一步操作
 
-运行主程序:
-```bash
-python correction.py
-```
+请根据您的网络环境选择合适的方案完成代码推送。建议优先尝试方案1（HTTPS + PAT），这是最简单可靠的方法。
 
-## 构建可执行文件
-
-使用PyInstaller构建可执行文件:
-
-```bash
-pyinstaller correction.spec
-```
-
-构建产物将在`dist/`目录下生成。
-
-## 注意事项
-
-- 本项目使用了多个第三方库，请确保安装了所有依赖
-- 构建产物（`build/`、`dist/`目录）和IDE配置文件（`.idea/`）已被.gitignore排除
-- 测试文件仅用于功能验证，实际使用时请替换为真实文件
-
-## 版本信息
-
-- Python版本: 3.11+
-- 主要依赖: 根据requirements.txt文件
+如有疑问，请参考GitHub官方文档或联系系统管理员。
