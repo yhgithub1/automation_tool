@@ -135,20 +135,8 @@ class FileConverter(QObject):
             self.log_signal.emit(f"开始转换Excel文件: {os.path.basename(excel_file)}")
             self.progress_signal.emit(10)
             
-            # 首先尝试使用Office内存转换方法（主要方法）
-            try:
-                return self._excel_to_pdf_office_memory(excel_file, pdf_file)
-            except Exception as memory_error:
-                self.log_signal.emit(f"Office内存转换失败: {str(memory_error)}")
-                self.log_signal.emit("尝试使用COM对象方法...")
-                
-                # 如果内存方法失败，使用COM对象方法作为备用
-                try:
-                    return self._excel_to_pdf_com(excel_file, pdf_file)
-                except Exception as com_error:
-                    self.log_signal.emit(f"COM对象方法也失败: {str(com_error)}")
-                    self.finished_signal.emit(False, "")
-                    return False, ""
+            # 直接使用Office内存转换方法（成功率最高）
+            return self._excel_to_pdf_office_memory(excel_file, pdf_file)
                 
         except Exception as e:
             error_msg = f"Excel转换失败: {str(e)}"
@@ -410,50 +398,18 @@ class FileConverter(QObject):
             word.Visible = False
             word.DisplayAlerts = 0
             
-            # 核心优化1：强制设置Word语言环境为中文（简体）
-            try:
-                word.Language = 2052  # 2052 = 简体中文
-                self.log_signal.emit("✅ 已设置Word语言环境为简体中文")
-            except:
-                self.log_signal.emit("⚠️ 无法设置Word语言环境，继续尝试...")
+           
             
-            # 核心优化2：尝试多种编码方式打开文档（优先GBK，再UTF-8）
-            encodings = [
-                (936, "GBK/GB2312（中文Windows默认）"),  # 中文Windows默认编码
-                (65001, "UTF-8（通用编码）"),
-                (0, "自动检测（系统默认）")
-            ]
-            
-            doc = None
-            for codepage, desc in encodings:
-                if self.is_canceled:
-                    return False, ""
-                    
-                try:
-                    self.log_signal.emit(f"尝试用 {desc} 打开文档...")
-                    word.Application.DefaultTextEncoding = codepage
-                    
-                    # 关键参数：NoEncodingDialog=True 防止弹出编码选择对话框
-                    doc = word.Documents.Open(
-                        FileName=word_file,
-                        ReadOnly=True,
-                        NoEncodingDialog=True,
-                        ConfirmConversions=False,
-                        Encoding=codepage if codepage != 0 else None
-                    )
-                    self.log_signal.emit(f"✅ 文档成功用 {desc} 打开")
-                    break
-                except Exception as e:
-                    self.log_signal.emit(f"❌ {desc} 打开失败: {str(e)}")
-                    if doc:
-                        try:
-                            doc.Close(SaveChanges=False)
-                        except:
-                            pass
-                    doc = None
-            
-            if not doc:
-                raise Exception("所有编码尝试均失败，无法打开文档")
+            # 直接用GBK编码打开文档（中文Windows默认，成功率最高）
+            word.Application.DefaultTextEncoding = 936  # GBK编码
+            doc = word.Documents.Open(
+                FileName=word_file,
+                ReadOnly=True,
+                NoEncodingDialog=True,
+                ConfirmConversions=False,
+                Encoding=936
+            )
+            self.log_signal.emit("✅ 文档成功打开")
             
             self.progress_signal.emit(50)
             
@@ -464,17 +420,7 @@ class FileConverter(QObject):
                 self.log_signal.emit("✅ 已强制设置文档语言为简体中文")
             except Exception as e:
                 self.log_signal.emit(f"⚠️ 设置文档语言失败: {str(e)}")
-            
-            # 核心优化4：检查并修复中文字体（确保使用系统中文字体）
-            try:
-                chinese_fonts = ["宋体", "SimSun", "Microsoft YaHei", "微软雅黑", "黑体"]
-                for font in word.Fonts:
-                    if font.Name in chinese_fonts or "Sim" in font.Name or "YaHei" in font.Name:
-                        font.NameAscii = font.Name
-                        font.NameOther = font.Name
-                self.log_signal.emit("✅ 已修复中文字体映射")
-            except Exception as e:
-                self.log_signal.emit(f"⚠️ 字体修复失败: {str(e)}")
+           
             
             self.log_signal.emit("正在导出为PDF...")
             self.progress_signal.emit(70)
@@ -676,14 +622,18 @@ class FileConverter(QObject):
                 self.progress_signal.emit(60)
                 
                 # 临时保存图片（避免PIL直接传参问题）
-                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_img:
-                    temp_path = temp_img.name
-                    try:
-                        img.save(temp_path, 'JPEG', quality=95)
-                        c.drawImage(temp_path, pos_x, pos_y, display_w, display_h)
-                    finally:
-                        if os.path.exists(temp_path):
+                temp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_img:
+                        temp_path = temp_img.name
+                    img.save(temp_path, 'JPEG', quality=95)
+                    c.drawImage(temp_path, pos_x, pos_y, display_w, display_h)
+                finally:
+                    if temp_path and os.path.exists(temp_path):
+                        try:
                             os.unlink(temp_path)  # 删除临时文件
+                        except:
+                            pass  # 文件可能已被使用，忽略删除错误
                 
                 c.showPage()
                 c.save()

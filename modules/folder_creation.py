@@ -89,35 +89,79 @@ class FolderCreator(QObject):
                     messagebox.showinfo("提示", "检索值不能为空，请重新输入")
                     continue
 
-                # 检索匹配的TXT文件
-                pattern = re.compile(r'^(\d+)_(\d+)_')  # 匹配格式：数字_时间_
-                file_groups = {}
+                # 检索匹配的TXT文件 - 使用通用数字_数字格式
+                pattern_general = re.compile(r'(\d+)_(\d+)')
+
+                files_with_date = []
+                files_without_date = []
 
                 for file in os.listdir(tool_folder_path):
                     if customer_input.lower() in file.lower() and file.endswith('.txt'):
-                        match = pattern.match(file)
-                        if not match:
-                            continue
-                        prefix = match.group(1)
-                        time_str = match.group(2)
-
                         file_path = os.path.join(tool_folder_path, file)
-                        if prefix not in file_groups:
-                            file_groups[prefix] = []
-                        file_groups[prefix].append((time_str, file_path, file))
-                found_files = []
-                for group in file_groups.values():
-                    group_sorted = sorted(group, key=lambda x: x[0], reverse=True)
-                    latest_file = group_sorted[0]
-                    modify_time = os.path.getmtime(latest_file[1])
-                    found_files.append((latest_file[2], latest_file[1], modify_time))
-                if found_files:
-                    shutil.copy(latest_file[1], main_folder_path)
-                    self.log_signal.emit(f"复制最新文件到总文件夹: {latest_file[2]}成功")
-                    messagebox.showinfo("成功", f"复制最新文件到总文件夹: {latest_file[2]}")
+                        modify_time = os.path.getmtime(file_path)
+
+                        # 尝试通用数字_数字格式
+                        general_match = pattern_general.search(file)
+                        if general_match:
+                            # 文件名包含日期格式 (数字_数字)
+                            date_str = general_match.group(2)
+                            files_with_date.append((date_str, modify_time, file_path, file))
+                            self.log_signal.emit(f"  {file} -> 分类为有日期格式: {date_str}")
+                        else:
+                            # 文件名不包含日期格式
+                            files_without_date.append((modify_time, file_path, file))
+                            self.log_signal.emit(f"  {file} -> 分类为无日期格式")
+                
+                # 详细日志输出
+                self.log_signal.emit(f"找到 {len(files_with_date)} 个有日期格式的文件")
+                self.log_signal.emit(f"找到 {len(files_without_date)} 个无日期格式的文件")
+                
+                # 选择逻辑
+                if files_with_date and files_without_date:
+                    # 如果既有有日期的文件，又有无日期的文件
+                    # 比较所有文件的修改时间，选择修改时间最新的
+                    all_files = []
+                    # 添加有日期的文件
+                    for date_str, modify_time, file_path, file_name in files_with_date:
+                        all_files.append((modify_time, file_path, file_name))
+                    # 添加无日期的文件
+                    for modify_time, file_path, file_name in files_without_date:
+                        all_files.append((modify_time, file_path, file_name))
+                    
+                    self.log_signal.emit(f"混合文件情况：合并 {len(all_files)} 个文件进行比较")
+                    
+                    # 从所有文件中选择修改时间最新的
+                    latest_file_info = max(all_files, key=lambda x: x[0])
+                    latest_file_name = latest_file_info[2]
+                    latest_file_path = latest_file_info[1]
+                    
+                    self.log_signal.emit(f"混合文件选择结果：选择 {latest_file_name} (按修改时间)")
+                    
+                elif files_with_date:
+                    # 只有有日期的文件，优先按日期选择
+                    latest_file_info = max(files_with_date, key=lambda x: x[0])
+                    latest_file_name = latest_file_info[3]
+                    latest_file_path = latest_file_info[2]
+                    
+                    self.log_signal.emit(f"只有有日期文件：选择 {latest_file_name} (按日期)")
+                    
+                elif files_without_date:
+                    # 只有无日期的文件，按修改时间选择
+                    latest_file_info = max(files_without_date, key=lambda x: x[0])
+                    latest_file_name = latest_file_info[2]
+                    latest_file_path = latest_file_info[1]
+                    
+                    self.log_signal.emit(f"只有无日期文件：选择 {latest_file_name} (按修改时间)")
+                    
                 else:
-                    self.log_signal.emit("未检索到, 未找到匹配的文件。")
-                    messagebox.showinfo("未检索到, 未找到匹配的文件。")
+                    self.log_signal.emit(f"未找到匹配的文件（检索值: {customer_input}）")
+                    messagebox.showinfo("提示", "未找到匹配的文件")
+                    continue  # 继续下一次检索
+                
+                # 复制最新文件到总文件夹
+                shutil.copy(latest_file_path, main_folder_path)
+                self.log_signal.emit(f"✅ 复制最新文件到总文件夹: {latest_file_name} 成功")
+                messagebox.showinfo("成功", f"复制最新文件到总文件夹: {latest_file_name}")
 
             # 9. 流程结束
             self.log_signal.emit("文件夹创建+文件检索流程全部完成")

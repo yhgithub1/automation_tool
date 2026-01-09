@@ -1,8 +1,12 @@
 import os
 import glob
-import pandas as pd
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List, Any
 import logging
+
+# Lazy import for openpyxl
+def get_openpyxl():
+    import openpyxl
+    return openpyxl
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -10,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def find_excel_file() -> Tuple[Optional[str], str]:
     """
-    在桌面的tool文件夹中查找Excel文件
+    在桌面的tool文件夹中查找名为'datasource'的Excel文件
 
     Returns:
         Tuple[可选的文件路径, 状态消息]
@@ -22,19 +26,24 @@ def find_excel_file() -> Tuple[Optional[str], str]:
         if not os.path.exists(tool_folder):
             return None, "错误: 桌面的tool文件夹不存在"
 
-        # 查找所有Excel文件
-        excel_files = glob.glob(os.path.join(tool_folder, "*.xlsx")) + glob.glob(os.path.join(tool_folder, "*.xls"))
+        # 查找名为'datasource'的Excel文件（不区分大小写）
+        excel_files = []
+        for pattern in ["*.xlsx", "*.xls"]:
+            for file_path in glob.glob(os.path.join(tool_folder, pattern)):
+                file_name = os.path.basename(file_path).lower()
+                if "datasource" in file_name:
+                    excel_files.append(file_path)
 
         if not excel_files:
-            return None, "错误: tool文件夹中未找到Excel文件"
+            return None, "错误: tool文件夹中未找到名为'datasource'的Excel文件"
 
-        # 使用第一个找到的Excel文件
+        # 使用第一个找到的'datasource' Excel文件
         excel_file = excel_files[0]
         message = f"找到Excel文件: {os.path.basename(excel_file)}"
 
-        # 如果有多个Excel文件，添加提示
+        # 如果有多个'datasource' Excel文件，添加提示
         if len(excel_files) > 1:
-            message += f"\n注意: tool文件夹中发现{len(excel_files)}个Excel文件，将使用第一个文件"
+            message += f"\n注意: tool文件夹中发现{len(excel_files)}个名为'datasource'的Excel文件，将使用第一个文件"
 
         return excel_file, message
 
@@ -44,8 +53,7 @@ def find_excel_file() -> Tuple[Optional[str], str]:
         return None, error_msg
 
 
-def read_excel_data(file_path: str, sheet_name: Optional[str] = None, header_row: Optional[int] = None) -> Optional[
-    pd.DataFrame]:
+def read_excel_data(file_path: str, sheet_name: Optional[str] = None, header_row: Optional[int] = None) -> Optional[List[List[Any]]]:
     """
     读取Excel文件数据
 
@@ -55,21 +63,49 @@ def read_excel_data(file_path: str, sheet_name: Optional[str] = None, header_row
         header_row: 表头所在行，如果为None则自动检测
 
     Returns:
-        pandas DataFrame 或 None（如果出错）
+        List of lists representing Excel data, or None if error
     """
     try:
-        if sheet_name:
-            df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row)
-        else:
-            df = pd.read_excel(file_path, header=header_row)
+        # Load workbook
+        openpyxl = get_openpyxl()
+        workbook = openpyxl.load_workbook(file_path, read_only=True)
 
-        logger.info(f"成功读取Excel文件: {file_path}, 共{len(df)}行数据")
-        return df
+        # Get sheet
+        if sheet_name:
+            sheet = workbook[sheet_name]
+        else:
+            sheet = workbook.active
+
+        # Read data
+        data = []
+        for row in sheet.iter_rows(values_only=True):
+            data.append(list(row))
+
+        # Handle header row if specified
+        if header_row is not None and header_row > 0 and len(data) > header_row - 1:
+            headers = data[header_row - 1]
+            data = data[header_row:]
+            # Convert to dictionary format if headers exist
+            if headers:
+                result = []
+                for row in data:
+                    if len(row) == len(headers):
+                        result.append(dict(zip(headers, row)))
+                    else:
+                        result.append(row)
+                return result
+            else:
+                return data
+        else:
+            return data
 
     except Exception as e:
         error_msg = f"读取Excel文件失败: {str(e)}"
         logger.error(error_msg)
         return None
+    finally:
+        if 'workbook' in locals():
+            workbook.close()
 
 
 def validate_excel_file(file_path: str) -> Tuple[bool, str]:
@@ -92,7 +128,12 @@ def validate_excel_file(file_path: str) -> Tuple[bool, str]:
             return False, "文件不是有效的Excel格式"
 
         # 尝试读取文件前几行
-        pd.read_excel(file_path, nrows=1)
+        openpyxl = get_openpyxl()
+        workbook = openpyxl.load_workbook(file_path, read_only=True)
+        sheet = workbook.active
+        # Try to read first row
+        next(sheet.iter_rows(max_row=1))
+        workbook.close()
 
         return True, "文件有效"
 
@@ -112,8 +153,7 @@ def get_sheet_names(file_path: str) -> Optional[list]:
     """
     try:
         # 使用openpyxl获取工作表名称
-        import openpyxl
-
+        openpyxl = get_openpyxl()
         workbook = openpyxl.load_workbook(file_path, read_only=True)
         sheet_names = workbook.sheetnames
         workbook.close()
@@ -140,11 +180,12 @@ if __name__ == "__main__":
         print(f"文件验证: {is_valid}, {valid_msg}")
 
         # 测试读取Excel数据
-        df = read_excel_data(excel_path)
-        if df is not None:
-            print(f"成功读取 {len(df)} 行数据")
+        data = read_excel_data(excel_path)
+        if data is not None:
+            print(f"成功读取 {len(data)} 行数据")
             print("前5行数据:")
-            print(df.head())
+            for i, row in enumerate(data[:5]):
+                print(f"行 {i+1}: {row}")
 
         # 测试获取工作表名称
         sheets = get_sheet_names(excel_path)

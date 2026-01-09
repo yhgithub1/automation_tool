@@ -1,5 +1,4 @@
 import win32com.client as win32
-import pandas as pd
 import re
 import os
 import time
@@ -8,6 +7,13 @@ import pythoncom
 from PyQt5.QtCore import QThread, pyqtSignal
 import sys
 import os
+from typing import List, Any
+import threading
+
+# Lazy import for openpyxl
+def get_openpyxl():
+    import openpyxl
+    return openpyxl
 
 # Get the directory of the current script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,49 +25,161 @@ if project_root not in sys.path:
 
 from utils.file_utils import find_excel_file
 
+def get_email_addresses_from_datasource():
+    """
+    从桌面tool文件夹中的datasource.xlsx文件读取邮箱地址
+    返回TO和CC邮箱地址列表
+    """
+    try:
+        # 构建datasource.xlsx文件的完整路径
+        datasource_path = os.path.join(os.path.expanduser("~"), "Desktop", "tool", "datasource.xlsx")
+
+        # 检查文件是否存在
+        if not os.path.exists(datasource_path):
+            raise FileNotFoundError(f"datasource.xlsx文件不存在: {datasource_path}")
+
+        # 读取Excel文件中的outlook_tocc表
+        openpyxl = get_openpyxl()
+        workbook = openpyxl.load_workbook(datasource_path, read_only=True)
+        sheet = workbook['outlook_tocc']
+
+        # 初始化邮箱地址字典
+        email_addresses = {
+            'to': [],
+            'cc': []
+        }
+
+        # 读取所有数据
+        data = []
+        for row in sheet.iter_rows(values_only=True):
+            data.append(list(row))
+
+        # 解析表格数据 - 处理新的Excel结构
+        # 新结构：列标题包含"to"和TO邮箱地址，数据行包含"cc"和CC邮箱地址
+        for row_idx, row in enumerate(data):
+            if len(row) == 0:
+                continue
+
+            row_type = str(row[0]).lower().strip()  # 第一列是类型（to/cc）
+
+            # 遍历剩余列，提取非空的邮箱地址
+            for col_idx in range(1, len(row)):
+                email = str(row[col_idx]).strip() if row[col_idx] is not None else ''
+                # 更严格的NaN检查
+                if email and email.lower() != 'nan' and email != '':
+                    if row_type == 'to':
+                        email_addresses['to'].append(email)
+                    elif row_type == 'cc':
+                        email_addresses['cc'].append(email)
+
+        # 如果没有找到TO邮箱地址，尝试从列标题中提取（新Excel结构）
+        if not email_addresses['to']:
+            # 检查列标题是否包含TO邮箱地址
+            if len(data) > 0:
+                header_row = data[0]
+                for col_idx in range(1, len(header_row)):
+                    col_name = str(header_row[col_idx]).strip() if header_row[col_idx] is not None else ''
+                    if col_name and col_name.lower() != 'nan' and col_name != '' and '@' in col_name:
+                        email_addresses['to'].append(col_name)
+
+        # 如果没有找到TO邮箱地址，使用默认值
+        if not email_addresses['to']:
+            email_addresses['to'] = ["zicheng.zhang@zeiss.com", "jiaxin.lu.ext@zeiss.com"]
+
+        # 如果没有找到CC邮箱地址，使用默认值
+        if not email_addresses['cc']:
+            email_addresses['cc'] = ["Zhu, Zhiming"]
+
+        # 将邮箱地址列表转换为Outlook格式（用分号分隔）
+        to_emails = ';'.join(email_addresses['to'])
+        cc_emails = ';'.join(email_addresses['cc'])
+
+        return to_emails, cc_emails
+
+    except Exception as e:
+        # 如果读取失败，返回默认值（与原始硬编码一致）
+        print(f"读取datasource.xlsx文件时出错: {str(e)}")
+        return "zicheng.zhang@zeiss.com;jiaxin.lu.ext@zeiss.com", "Zhu, Zhiming"
+
 
 class OutlookEmailThread(QThread):
     """Outlook邮件生成线程（支持COM初始化，处理Excel并生成邮件）"""
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
 
+    # 类级别的锁，确保只有一个Outlook线程可以运行
+    outlook_lock = threading.Lock()
+    outlook_active = False
+
     def __init__(self, excel_path):
         super().__init__()
         self.excel_path = excel_path
 
     def run(self):
-        # 初始化 COM 环境（必须在操作 Outlook 前调用）
-        pythoncom.CoInitialize()
+        # 使用锁机制确保只有一个Outlook线程可以运行
+        with OutlookEmailThread.outlook_lock:
+            # 检查是否已经有Outlook线程在运行
+            if OutlookEmailThread.outlook_active:
+                self.progress.emit("⚠️  警告：已有Outlook任务正在运行，请等待完成后重试")
+                self.finished.emit(False)
+                return
+
+            # 标记Outlook任务开始
+            OutlookEmailThread.outlook_active = True
+
         try:
-            result = self._generate_emails_from_excel()
-            self.finished.emit(result)
+            # 初始化 COM 环境（必须在操作 Outlook 前调用）
+            pythoncom.CoInitialize()
+            try:
+                result = self._generate_emails_from_excel()
+                self.finished.emit(result)
+            except Exception as e:
+                # 处理 COM 注册问题
+                if "CLSIDToClassMap" in str(e):
+                    self.progress.emit(f"Outlook COM 组件需要重新注册，尝试修复...")
+                    try:
+                        # 尝试重新初始化
+                        pythoncom.CoUninitialize()
+                        pythoncom.CoInitialize()
+                        result = self._generate_emails_from_excel()
+                        self.finished.emit(result)
+                        return
+                    except Exception as retry_e:
+                        self.progress.emit(f"重新尝试失败: {str(retry_e)}")
+
+                self.progress.emit(f"全局错误: {str(e)}")
+                self.finished.emit(False)
+            finally:
+                # 释放 COM 资源，避免内存泄漏
+                pythoncom.CoUninitialize()
         except Exception as e:
-            # 处理 COM 注册问题
-            if "CLSIDToClassMap" in str(e):
-                self.progress.emit(f"Outlook COM 组件需要重新注册，尝试修复...")
-                try:
-                    # 尝试重新初始化
-                    pythoncom.CoUninitialize()
-                    pythoncom.CoInitialize()
-                    result = self._generate_emails_from_excel()
-                    self.finished.emit(result)
-                    return
-                except Exception as retry_e:
-                    self.progress.emit(f"重新尝试失败: {str(retry_e)}")
-            
-            self.progress.emit(f"全局错误: {str(e)}")
+            self.progress.emit(f"线程运行时发生意外错误: {str(e)}")
             self.finished.emit(False)
         finally:
-            # 释放 COM 资源，避免内存泄漏
-            pythoncom.CoUninitialize()
+            # 任务完成，释放锁
+            with OutlookEmailThread.outlook_lock:
+                OutlookEmailThread.outlook_active = False
+                self.progress.emit("Outlook任务完成，锁已释放")
 
     def _generate_emails_from_excel(self):
         """核心逻辑：从Excel读取数据，生成Outlook邮件"""
         try:
             # -------- 1. 读取Excel文件 --------
             self.progress.emit("正在读取Excel文件...")
-            df = pd.read_excel(self.excel_path, header=None)
-            self.progress.emit(f"成功读取Excel文件，共{len(df)}行数据")
+            openpyxl = get_openpyxl()
+            workbook = openpyxl.load_workbook(self.excel_path, read_only=True)
+            sheet = workbook['Sheet1']
+
+            # 读取所有数据并过滤空行
+            data = []
+            for row in sheet.iter_rows(values_only=True):
+                row_list = list(row)
+                # 过滤空行：如果行中所有单元格都是None或空字符串，则跳过
+                if all(cell is None or (isinstance(cell, str) and cell.strip() == '') for cell in row_list):
+                    continue
+                data.append(row_list)
+
+            self.progress.emit(f"成功读取Excel文件，共{len(data)}行数据")
 
             # -------- 2. 启动Outlook --------
             self.progress.emit("启动Outlook应用程序...")
@@ -71,6 +189,22 @@ class OutlookEmailThread(QThread):
                 return False
             self.progress.emit("Outlook应用程序已启动")
 
+            # 检查是否已经有Outlook窗口打开
+            try:
+                import psutil
+                outlook_windows = []
+                for proc in psutil.process_iter(['name', 'pid']):
+                    if proc.info['name'] and 'outlook' in proc.info['name'].lower():
+                        outlook_windows.append(proc.info['pid'])
+
+                if len(outlook_windows) > 1:  # 当前进程 + 现有Outlook
+                    self.progress.emit(f"⚠️  检测到已有Outlook窗口打开，将使用现有Outlook实例")
+            except ImportError:
+                # psutil未安装，跳过检查
+                pass
+            except Exception as e:
+                self.progress.emit(f"检查现有Outlook窗口时出错: {str(e)}")
+
             # -------- 3. 捕获Outlook签名 --------
             self.progress.emit("正在获取Outlook签名...")
             signature = self._capture_outlook_signature(outlook)
@@ -78,20 +212,20 @@ class OutlookEmailThread(QThread):
                 self.progress.emit("警告: 未捕获到有效签名，邮件将不含签名")
 
             # -------- 4. 循环生成邮件 --------
-            total_rows = len(df)
-            for index, row in df.iterrows():
+            total_rows = len(data)
+            for index, row in enumerate(data):
                 self.progress.emit(f"正在处理第{index + 1}/{total_rows}行数据...")
                 try:
                     # 提取公司名称（F列，索引2）
-                    company_full = str(row.iloc[2])
-                    company_name = company_full.split('/')[-1].strip() if '/' in company_full else company_full
+                    company_full = str(row[2]) if len(row) > 2 else ""
+                    company_name = company_full.split('/')[-1].strip() if '/' in company_full else company_full.strip()
 
                     # 提取设备信息（型号：H列索引4；SN：B列索引1）
-                    model = str(row.iloc[4])
-                    sn = str(row.iloc[1])
+                    model = str(row[4]) if len(row) > 4 else ""
+                    sn = str(row[1]) if len(row) > 1 else ""
 
                     # 提取地址和联系人（N列，索引13）
-                    contact_info = re.sub(r'\s+', ' ', str(row.iloc[13])).strip()
+                    contact_info = re.sub(r'\s+', ' ', str(row[13])).strip() if len(row) > 13 else ""
 
                     # 构建邮件主题和正文
                     subject = f"{company_name} {model} SN:{sn}包装箱回收"
@@ -127,8 +261,13 @@ CMM: {model} SN: {sn}
                     mail = outlook.CreateItem(0)
                     mail.Subject = subject
                     mail.HTMLBody = html_body
-                    mail.To = "Zhang, Zicheng"
-                    mail.CC = "Zhu, Zhiming"
+
+                    # 从datasource.xlsx获取邮箱地址
+                    to_emails, cc_emails = get_email_addresses_from_datasource()
+                    self.progress.emit(f"使用邮箱地址 - TO: {to_emails}, CC: {cc_emails}")
+
+                    mail.To = to_emails
+                    mail.CC = cc_emails
                     mail.Display()
 
                     self.progress.emit(f"已创建邮件 #{index + 1}: {subject}")

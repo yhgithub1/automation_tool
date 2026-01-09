@@ -1,5 +1,5 @@
 # modules/memo_generator.py
-import pandas as pd
+import openpyxl
 from docx import Document
 from datetime import datetime, timedelta
 import os
@@ -18,7 +18,7 @@ from utils.file_utils import find_excel_file
 
 def generate_memo(excel_path=None, template_path=None, output_path=None, progress_callback=None):
     """
-    生成备忘录：从Excel读取数据，填充Word模板并保存
+    生成MEMO：从Excel读取数据，填充Word模板并保存
     :param excel_path: Excel文件路径（默认：tool/1.xlsx）
     :param template_path: Word模板路径（默认：tool/MemoTemplate.docx）
     :param output_path: 生成文件保存路径（默认：tool/Filled_Memo.docx）
@@ -52,7 +52,7 @@ def generate_memo(excel_path=None, template_path=None, output_path=None, progres
         if not output_path:
             output_path = os.path.join(tool_folder, "Filled_Memo.docx")
 
-        send_log(f"📋 开始执行备忘录生成流程")
+        send_log(f"📋 开始执行MEMO生成流程")
         send_log(f"Excel路径：{excel_path}")
         send_log(f"模板路径：{template_path}")
         send_log(f"输出路径：{output_path}")
@@ -62,25 +62,34 @@ def generate_memo(excel_path=None, template_path=None, output_path=None, progres
         if not os.path.exists(excel_path):
             raise FileNotFoundError(f"Excel文件不存在：{excel_path}")
 
-        # 读取Excel（无表头，取第一个工作表）
-        excel_file = pd.ExcelFile(excel_path)
-        send_log(f"Excel包含工作表：{excel_file.sheet_names}")
-        df = pd.read_excel(excel_path, sheet_name=0, header=None)
+        # 读取Excel（无表头，取Sheet1工作表）
+        workbook = openpyxl.load_workbook(excel_path, read_only=True)
+        sheet_names = workbook.sheetnames
+        send_log(f"Excel包含工作表：{sheet_names}")
+        sheet = workbook['Sheet1']
 
-        if len(df) == 0:
+        # 读取所有数据
+        data = []
+        for row in sheet.iter_rows(values_only=True):
+            data.append(list(row))
+
+        # Get the actual maximum column count from the sheet
+        max_column = sheet.max_column
+
+        if len(data) == 0:
             raise ValueError("Excel文件中无任何数据行")
-        if len(df.columns) < 5:  # 至少需要5列（B列=1、C列=2、H列=4）
-            raise ValueError(f"Excel列数不足（当前{len(df.columns)}列，需至少5列）")
+        if max_column < 2:  # 至少需要2列（B列=1、C列=2）
+            raise ValueError(f"Excel列数不足（当前{max_column}列，需至少2列）")
 
         # 提取第一行关键数据（原逻辑保持不变）
-        row = df.iloc[0]
-        send_log(f"第一行数据：{row.tolist()}")
+        row = data[0]
+        send_log(f"第一行数据：{row}")
 
         # 解析公司名称、型号、序列号
-        company_full = str(row.iloc[2]) if len(row) > 2 else ""
+        company_full = str(row[2]) if len(row) > 2 else ""
         company_name = company_full.split('/')[-1].strip() if '/' in company_full else company_full.strip()
-        model = str(row.iloc[4]) if len(row) > 4 else ""
-        sn = str(row.iloc[1]) if len(row) > 1 else ""
+        model = str(row[4]) if len(row) > 4 else ""
+        sn = str(row[1]) if len(row) > 1 else ""
 
         # 校验关键数据
         if not company_name:
@@ -164,14 +173,14 @@ def generate_memo(excel_path=None, template_path=None, output_path=None, progres
             raise ValueError("❌ 未替换任何占位符！请检查模板中的关键词和下划线格式")
         send_log(f"✅ 模板填充完成，共替换{placeholder_count}个占位符")
 
-        # 4. 保存生成的备忘录
-        send_log(f"\n💾 正在保存生成的备忘录...")
+        # 4. 保存生成的MEMO
+        send_log(f"\n💾 正在保存生成的MEMO...")
         doc.save(output_path)
         if not os.path.exists(output_path):
-            raise Exception(f"备忘录保存失败（文件未生成）：{output_path}")
+            raise Exception(f"MEMO保存失败（文件未生成）：{output_path}")
 
-        send_log(f"✅ 备忘录生成成功！路径：{output_path}")
-        return (True, f"备忘录生成成功（{output_path}）", output_path)
+        send_log(f"✅ MEMO生成成功！路径：{output_path}")
+        return (True, f"MEMO生成成功（{output_path}）", output_path)
 
     except FileNotFoundError as e:
         err_msg = f"文件错误：{str(e)}"
@@ -206,8 +215,8 @@ if __name__ == "__main__":
     template_path = os.path.join(tool_folder, "MemoTemplate.docx")  # 模板路径
     output_path = os.path.join(tool_folder, "Filled_Memo_test.docx")  # 测试输出路径
 
-    # 3. 调用备忘录生成函数（带日志回调）
-    test_log_callback("开始测试备忘录生成...")
+    # 3. 调用MEMO生成函数（带日志回调）
+    test_log_callback("开始测试MEMO生成...")
     success, message, result_path = generate_memo(
         excel_path=excel_path,
         template_path=template_path,
