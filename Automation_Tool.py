@@ -5,7 +5,7 @@ import json
 
 # 第一步：只导入绝对必要的模块
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QGroupBox, QGridLayout, QHBoxLayout, QProgressBar, QMenu, QAction, QDialog, QMessageBox, QFileDialog, QLineEdit, QCheckBox, QFormLayout, QStyle
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit, QGroupBox, QGridLayout, QHBoxLayout, QProgressBar, QMenu, QAction, QDialog, QMessageBox, QFileDialog, QLineEdit, QCheckBox, QFormLayout, QStyle, QScrollArea
 from PyQt5.QtGui import QFont, QIcon, QCursor
 from PyQt5.QtCore import pyqtSignal, QThread
 
@@ -693,6 +693,15 @@ class FileSearchDialog(QDialog):
             self.start_search_btn.setEnabled(True)
             self.cancel_search_btn.setEnabled(False)
 
+    def _load_icon(self):
+        """加载窗口图标"""
+        try:
+            icon_path = "tool_icon.ico"
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+        except Exception as e:
+            print(f"加载图标失败: {e}")
+
 # -------------------------- 文件搜索线程类 --------------------------
 class FileSearchThread(QThread):
     result_signal = pyqtSignal(str)
@@ -843,7 +852,7 @@ class FolderThread(QThread):
 
 class MemoThread(QThread):
     progress = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)
+    finished = pyqtSignal(bool, str, list)
 
     def __init__(self, excel_path=None):
         super().__init__()
@@ -855,15 +864,16 @@ class MemoThread(QThread):
             self.progress.emit("📋 启动MEMO生成任务...")
             # 延迟导入memo_generator
             generate_memo = get_memo_generator()
-            success, msg, output_path = generate_memo(
+            success, msg, generated_files = generate_memo(
                 excel_path=self.excel_path,
+                output_folder=None,  # 使用默认文件夹
                 progress_callback=lambda log: self.progress.emit(log)
             )
-            self.finished.emit(success, msg)
+            self.finished.emit(success, msg, generated_files)
         except Exception as e:
             err_msg = f"MEMO线程出错：{str(e)}"
             self.progress.emit(f"❌ {err_msg}")
-            self.finished.emit(False, err_msg)
+            self.finished.emit(False, err_msg, [])
 
     def cancel(self):
         self.is_canceled = True
@@ -1915,21 +1925,17 @@ class MainWindow(QMainWindow):
         self.memo_thread.finished.connect(self.on_memo_finished)
         self.memo_thread.start()
 
-    def on_memo_finished(self, success, msg):
+    def on_memo_finished(self, success, msg, generated_files):
         self._reset_task_state()
         self.update_log(f"\n{msg}")
         self.statusBar().showMessage(msg)
         if success:
-            # Extract file path from message if present
-            file_path = ""
-            if "（" in msg and "）" in msg:
-                file_path = msg.split("（")[1].split("）")[0]
-
-            if file_path and os.path.exists(file_path):
-                # Create a custom dialog with clickable file path
+            if generated_files:
+                # Create a custom dialog showing all generated files
                 dialog = QDialog(self)
                 dialog.setWindowTitle("生成成功")
-                dialog.setMinimumWidth(400)
+                dialog.setMinimumWidth(500)
+                dialog.setMaximumHeight(600)
 
                 layout = QVBoxLayout(dialog)
 
@@ -1938,30 +1944,39 @@ class MainWindow(QMainWindow):
                 icon_label.setPixmap(QApplication.style().standardIcon(QStyle.SP_MessageBoxInformation).pixmap(32, 32))
                 layout.addWidget(icon_label, alignment=Qt.AlignCenter)
 
-                title_label = QLabel("MEMO生成成功！")
+                title_label = QLabel(f"MEMO生成成功！共生成 {len(generated_files)} 个文件")
                 title_label.setFont(QFont("Arial", 12, QFont.Bold))
                 layout.addWidget(title_label, alignment=Qt.AlignCenter)
 
-                # File path display
-                path_label = QLabel(f"文件已保存：{file_path}")
-                path_label.setWordWrap(True)
-                path_label.setStyleSheet("color: #2C3E50; margin: 10px 0;")
-                layout.addWidget(path_label)
+                # File list
+                file_list_label = QLabel("生成的文件列表：")
+                file_list_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+                layout.addWidget(file_list_label)
 
-                # Clickable link
-                file_path_forward = file_path.replace("\\", "/")
-                link_label = QLabel(f'<a href="file:///{file_path_forward}">点击打开文件</a>')
-                link_label.setOpenExternalLinks(True)
-                link_label.setStyleSheet("color: #3498DB; text-decoration: underline;")
-                link_label.setAlignment(Qt.AlignCenter)
-                link_label.setCursor(QCursor(Qt.PointingHandCursor))
-                layout.addWidget(link_label)
+                # Scrollable area for file list
+                scroll_area = QScrollArea()
+                scroll_area.setWidgetResizable(True)
+                scroll_area.setMaximumHeight(300)
+                scroll_widget = QWidget()
+                scroll_layout = QVBoxLayout(scroll_widget)
+
+                for file_path in generated_files:
+                    if os.path.exists(file_path):
+                        # Clickable file link
+                        file_path_forward = file_path.replace("\\", "/")
+                        file_label = QLabel(f'<a href="file:///{file_path_forward}" style="color: #3498DB; text-decoration: underline;">{os.path.basename(file_path)}</a>')
+                        file_label.setOpenExternalLinks(True)
+                        file_label.setCursor(QCursor(Qt.PointingHandCursor))
+                        scroll_layout.addWidget(file_label)
+
+                scroll_area.setWidget(scroll_widget)
+                layout.addWidget(scroll_area)
 
                 # OK button
                 ok_button = QPushButton("确定")
                 ok_button.setStyleSheet("""
                     QPushButton {
-                        background-color: #;
+                        background-color: #27AE60;
                         color: white;
                         border: none;
                         padding: 8px 16px;
@@ -1977,7 +1992,7 @@ class MainWindow(QMainWindow):
 
                 dialog.exec_()
             else:
-                # Fallback to simple message box
+                # Fallback to simple message box if no files
                 QMessageBox.information(self, "生成成功", msg)
         # 确保线程变量被正确清理
         self.memo_thread = None
