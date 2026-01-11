@@ -161,7 +161,7 @@ def generate_memo(excel_path=None, template_path=None, output_folder=None, progr
                     raise ValueError(f"❌ 第{row_index}行未替换任何占位符！请检查模板中的关键词和下划线格式")
 
                 # 4. 保存生成的MEMO
-                output_filename = f"[{sn}]_Filled_memo.docx"
+                output_filename = f"{sn}_Filled_memo.docx"
                 output_path = os.path.join(output_folder, output_filename)
                 doc.save(output_path)
                 if not os.path.exists(output_path):

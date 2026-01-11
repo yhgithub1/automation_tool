@@ -460,6 +460,11 @@ class FileConverterUI(QWidget):
             self.converter.cancel_conversion()
             event.ignore()  # 忽略关闭事件，等待转换完成
         else:
+            # 清理Office实例资源
+            try:
+                self.converter.cleanup_resources()
+            except Exception as e:
+                print(f"清理资源时出错: {e}")
             event.accept()
 
 

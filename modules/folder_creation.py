@@ -11,6 +11,11 @@ class FolderCreator(QObject):
     """文件夹创建器（支持日志信号传递，适配主窗口日志显示）"""
     log_signal = pyqtSignal(str)  # 传递日志到主窗口的信号
     finished = pyqtSignal(bool)   # 任务完成信号（成功/失败）
+    cancel_signal = pyqtSignal()  # 内部取消信号
+
+    def __init__(self):
+        super().__init__()
+        self.is_canceled = False
 
     def create_folders(self):
         """核心：创建文件夹+文件检索复制逻辑"""
@@ -25,6 +30,9 @@ class FolderCreator(QObject):
             if not folder_name:
                 self.log_signal.emit("用户未输入文件夹名称，操作取消")
                 messagebox.showinfo("取消", "未输入文件夹名称，操作取消。")
+                # 发送取消信号，确保主窗口能正确更新取消按钮状态
+                self.is_canceled = True
+                self.cancel_signal.emit()
                 self.finished.emit(False)
                 root.destroy()
                 return
@@ -80,6 +88,12 @@ class FolderCreator(QObject):
                 )
                 if customer_input is None:  # 用户点击Cancel
                     self.log_signal.emit("用户退出文件检索流程")
+                    # 立即更新状态，确保主窗口能感知到
+                    self.is_canceled = True
+                    # 发送取消信号，确保主窗口能正确更新取消按钮状态
+                    self.cancel_signal.emit()
+                    # 确保Tkinter事件循环正确处理
+                    root.update()
                     break
                 customer_input = customer_input.strip().lower()
                 if customer_input == '退出':  # 支持输入“退出”关键词

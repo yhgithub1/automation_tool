@@ -821,6 +821,7 @@ class FileSearchThread(QThread):
 class FolderThread(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal(bool)
+    cancel_signal = pyqtSignal()  # 内部取消信号
 
     def __init__(self):
         super().__init__()
@@ -834,6 +835,7 @@ class FolderThread(QThread):
             self.folder_creator = FolderCreatorClass()
             self.folder_creator.log_signal.connect(self.progress)
             self.folder_creator.finished.connect(self.on_finished)
+            self.folder_creator.cancel_signal.connect(self.on_internal_cancel)
             if not self.is_canceled:
                 self.folder_creator.create_folders()
             else:
@@ -849,6 +851,13 @@ class FolderThread(QThread):
 
     def on_finished(self, success):
         self.finished.emit(success)
+
+    def on_internal_cancel(self):
+        """处理内部取消信号"""
+        self.is_canceled = True
+        self.progress.emit("任务已被用户在弹窗中取消")
+        # 发送取消信号到主窗口，确保取消按钮状态被正确更新
+        self.cancel_signal.emit()
 
 class MemoThread(QThread):
     progress = pyqtSignal(str)
@@ -1635,7 +1644,7 @@ class MainWindow(QMainWindow):
 
     def show_version(self):
         """显示版本号弹窗"""
-        QMessageBox.information(self, "版本信息", "Version: V5.6\n "
+        QMessageBox.information(self, "版本信息", "Version: V5.8\n "
                                 "更新内容\n"
                                 "优化启动速度\n"
                                 "更新获取txt最新文件方法\n"
@@ -1884,9 +1893,18 @@ class MainWindow(QMainWindow):
         self.current_thread = self.folder_thread  # Keep reference for cancel functionality
         self.folder_thread.progress.connect(self.update_log)
         self.folder_thread.finished.connect(self.on_folder_finished)
+        # 确保信号连接正确
+        self.folder_thread.cancel_signal.connect(self.on_task_cancelled)
         self.folder_thread.start()
 
     def on_folder_finished(self, success):
+        # 检查是否已被取消，如果是则不再重置状态
+        if hasattr(self, 'folder_thread') and self.folder_thread and getattr(self.folder_thread, 'is_canceled', False):
+            self.update_log("DEBUG: 任务已被取消，跳过状态重置")
+            self.folder_thread = None
+            self.current_thread = None
+            return
+            
         self._reset_task_state()
         if success:
             self.update_log("文件夹创建+文件检索流程完成！")
@@ -1896,6 +1914,34 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("文件夹流程失败")
         self.folder_thread = None
         self.current_thread = None
+
+    def on_task_cancelled(self):
+        """处理任务取消信号"""
+        self.update_log("任务已被用户在弹窗中取消")
+        # 立即禁用取消按钮
+        self.cancel_btn.setEnabled(False)
+        # 确保FolderThread也被正确标记为已取消
+        if hasattr(self, 'folder_thread') and self.folder_thread:
+            self.folder_thread.is_canceled = True
+            # 断开信号连接，避免重复触发
+            try:
+                self.folder_thread.cancel_signal.disconnect(self.on_task_cancelled)
+            except:
+                pass
+        # 强制更新UI，确保按钮状态立即生效
+        QApplication.processEvents()
+        # 延迟重新评估所有任务状态，确保线程状态正确更新
+        QTimer.singleShot(100, self._force_reset_buttons)
+        
+    def _force_reset_buttons(self):
+        """强制重置按钮状态"""
+        excel_exists = self.excel_path is not None
+        self.outlook_btn.setEnabled(excel_exists)
+        self.memo_btn.setEnabled(excel_exists)
+        self.folder_btn.setEnabled(True)
+        self.pdf_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.progress_bar.setVisible(False)
 
     def run_memo(self):
         if not self.excel_path:
