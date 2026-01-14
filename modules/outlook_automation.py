@@ -84,7 +84,7 @@ def get_email_addresses_from_datasource():
 
         # 如果没有找到TO邮箱地址，使用默认值
         if not email_addresses['to']:
-            email_addresses['to'] = ["zicheng.zhang@zeiss.com", "jiaxin.lu.ext@zeiss.com"]
+            email_addresses['to'] = ["zicheng.zhang", "jiaxin.lu.ext"]
 
         # 如果没有找到CC邮箱地址，使用默认值
         if not email_addresses['cc']:
@@ -99,7 +99,7 @@ def get_email_addresses_from_datasource():
     except Exception as e:
         # 如果读取失败，返回默认值（与原始硬编码一致）
         print(f"读取datasource.xlsx文件时出错: {str(e)}")
-        return "zicheng.zhang@zeiss.com;jiaxin.lu.ext@zeiss.com", "Zhu, Zhiming"
+        return "zicheng.zhang;jiaxin.lu.ext", "Zhu, Zhiming"
 
 
 class OutlookEmailThread(QThread):

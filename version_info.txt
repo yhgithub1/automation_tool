@@ -18,11 +18,10 @@ VSVersionInfo(
       [
       StringTable(
         u'040904b0',
-        [StringStruct(u'CompanyName', u'ZEISS'),
+        [
         StringStruct(u'FileDescription', u'自动化工具集'),
         StringStruct(u'FileVersion', u'3.0.0.0'),
         StringStruct(u'InternalName', u'correction'),
-        StringStruct(u'LegalCopyright', u'Copyright (c) 2024 ZEISS'),
         StringStruct(u'OriginalFilename', u'correction.exe'),
         StringStruct(u'ProductName', u'Automation Tool'),
         StringStruct(u'ProductVersion', u'3.0.0.0')])
